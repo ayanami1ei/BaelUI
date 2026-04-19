@@ -62,7 +62,10 @@ impl App {
             vec![]
         };
 
-        let mut extensions = vec![];
+        let mut extensions = data.device_extensions
+            .iter()
+            .map(|n| n.as_ptr())
+            .collect::<Vec<_>>();
 
         // Required by Vulkan SDK on macOS since 1.3.216.
         if cfg!(target_os = "macos") && entry.version()? >= vulkan.portability_macos_version {
