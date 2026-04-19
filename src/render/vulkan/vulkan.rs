@@ -11,13 +11,13 @@ use vulkanalia::window as vk_window;
 use winit::window::Window;
 
 use crate::app;
-use crate::app::data::Data;
+use crate::app::appdata::AppData;
 use crate::render::vulkan::callback::callback;
 
 pub(crate) struct Vulkan {
-    portability_macos_version: Version,
+    pub(crate) portability_macos_version: Version,
     validation_enable: bool,
-    validation_layer: Option<vk::ExtensionName>,
+    pub(crate) validation_layer: Option<vk::ExtensionName>,
 }
 
 impl Vulkan {
@@ -61,7 +61,7 @@ impl Vulkan {
         &self,
         window: &Window,
         entry: &Entry,
-        data: &mut Data,
+        data: &mut AppData,
     ) -> Result<Instance> {
         // 应用信息，可选
         let app_info = vk::ApplicationInfo::builder()
