@@ -21,19 +21,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct App<'a> {
+pub(crate) struct App {
     entry: Entry,
     instance: Instance,
-    data: AppData<'a>,
+    data: AppData,
     device: Device,
 }
 
-impl<'a> App<'a> {
+impl App {
     fn create_logic_device(
         vulkan: &Vulkan,
         entry: &Entry,
         instance: &Instance,
-        data: &mut AppData<'a>,
+        data: &mut AppData,
     ) -> Result<Device> {
         let indices = QueueFamilyIndices::get(instance, data)?;
 

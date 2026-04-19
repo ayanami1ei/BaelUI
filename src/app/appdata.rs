@@ -10,17 +10,17 @@ use vulkanalia::{
 use crate::{error::suitability_error::SuitabilityError, render::vulkan::queue_family_indices::QueueFamilyIndices};
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct AppData<'a> {
+pub(crate) struct AppData {
     pub(crate) surface: vk::SurfaceKHR,
     pub(crate) messenger: vk::DebugUtilsMessengerEXT,
     pub(crate) physical_device: vk::PhysicalDevice,
 
     pub(crate) present_queue:vk::Queue,
 
-    device_extensions: &'a [vk::ExtensionName],
+    device_extensions: Vec<vk::ExtensionName>,
 }
 
-impl AppData<'_> {
+impl AppData {
     pub(crate) fn pick_physical_device(&mut self, instance: &Instance) -> Result<()> {
         for physical_device in unsafe { instance.enumerate_physical_devices() }? {
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
