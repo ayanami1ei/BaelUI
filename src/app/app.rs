@@ -1,132 +1,191 @@
-#![allow(unused)]
+use winit::event::{ElementState, Event, KeyboardInput, StartCause, VirtualKeyCode, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
+use winit::window::{Window, WindowBuilder};
 
-use std::collections::HashSet;
+use crate::render::wgpu::state::{RenderEvent, State};
 
-use anyhow::anyhow;
-use vulkanalia::prelude::v1_0::Instance;
-use vulkanalia::vk::{DeviceV1_0, KhrSurfaceExtension};
-use vulkanalia::window as vk_window;
-use vulkanalia::{
-    Device, Entry,
-    loader::{LIBRARY, LibloadingLoader},
-    vk::{self, HasBuilder, InstanceV1_0},
-};
-use winit::window::Window;
-
-use anyhow::Result;
-
-use crate::{
-    app::appdata::AppData,
-    render::vulkan::{queue_family_indices::QueueFamilyIndices, vulkan::Vulkan},
-};
-
-#[derive(Debug, Clone)]
-pub(crate) struct App {
-    entry: Entry,
-    instance: Instance,
-    data: AppData,
-    device: Device,
+pub struct AppRunner {
+    event_loop: EventLoop<RenderEvent>,
+    window: Window,
 }
 
-impl App {
-    fn create_logic_device(
-        vulkan: &Vulkan,
-        entry: &Entry,
-        instance: &Instance,
-        data: &mut AppData,
-    ) -> Result<Device> {
-        let indices = QueueFamilyIndices::get(instance, data)?;
+impl AppRunner {
+    pub async fn new() -> Self {
+        let event_loop: EventLoop<RenderEvent> =
+            EventLoopBuilder::<RenderEvent>::with_user_event().build();
+        let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-        let mut unique_indices = HashSet::new();
-        unique_indices.insert(indices.graphics);
-        unique_indices.insert(indices.present);
+        // initialize global State singleton
+        State::init_singleton(&window).await;
 
-        let queue_priorities = &[1.0];
-        let queue_infos = unique_indices
-            .iter()
-            .map(|i| {
-                vk::DeviceQueueCreateInfo::builder()
-                    .queue_family_index(*i)
-                    .queue_priorities(queue_priorities)
-            })
-            .collect::<Vec<_>>();
-
-        let queue_properties = &[1.0];
-        let queue_info = vk::DeviceQueueCreateInfo::builder()
-            .queue_family_index(indices.graphics)
-            .queue_priorities(queue_properties);
-
-        let layers = if cfg!(debug_assertions) {
-            vec![vulkan.validation_layer.unwrap().as_ptr()]
-        } else {
-            vec![]
-        };
-
-        let mut extensions = data.device_extensions
-            .iter()
-            .map(|n| n.as_ptr())
-            .collect::<Vec<_>>();
-
-        // Required by Vulkan SDK on macOS since 1.3.216.
-        if cfg!(target_os = "macos") && entry.version()? >= vulkan.portability_macos_version {
-            extensions.push(vk::KHR_PORTABILITY_SUBSET_EXTENSION.name.as_ptr());
-        }
-
-        let features = vk::PhysicalDeviceFeatures::builder();
-
-        let info = vk::DeviceCreateInfo::builder()
-            .queue_create_infos(&queue_infos)
-            .enabled_layer_names(&layers)
-            .enabled_extension_names(&extensions)
-            .enabled_features(&features);
-
-        let device = unsafe { instance.create_device(data.physical_device, &info, None) }?;
-        data.present_queue = unsafe { device.get_device_queue(indices.present, 0) };
-        Ok(device)
-    }
-
-    pub(crate) fn new(vulkan: &Vulkan, window: &Window) -> Result<Self> {
-        let loader = unsafe { LibloadingLoader::new(LIBRARY)? };
-        let entry = unsafe { Entry::new(loader).map_err(|b| anyhow!("{}", b))? };
-
-        let mut data = AppData::default();
-        let instance = vulkan.create_instance(window, &entry, &mut data)?;
-
-        data.surface = unsafe { vk_window::create_surface(&instance, window, window)? };
-
-        data.pick_physical_device(&instance)?;
-
-        let device = Self::create_logic_device(&vulkan, &entry, &instance, &mut data)?;
-        data.pick_physical_device(&instance)?;
-
-        Ok(Self {
-            entry,
-            instance,
-            data,
-            device,
-        })
-    }
-
-    pub(crate) fn render(&mut self, window: &Window) -> Result<()> {
-        Ok(())
-    }
-
-    pub(crate) fn destroy(&mut self) {
-        unsafe { self.device.destroy_device(None) };
-
-        #[cfg(debug_assertions)]
+        // register proxy
+        let proxy: EventLoopProxy<RenderEvent> = event_loop.create_proxy();
         {
-            use vulkanalia::vk::ExtDebugUtilsExtension;
-
-            unsafe {
-                self.instance
-                    .destroy_debug_utils_messenger_ext(self.data.messenger, None)
-            };
+            let mut state = State::global().lock().unwrap();
+            state.register_event_proxy(window.id(), proxy);
+            // if submissions were queued before proxy registration, request a redraw
+            if let Some(list) = state.pending_widgets.get(&window.id()) {
+                if !list.is_empty() {
+                    let _ = state
+                        .proxies
+                        .get(&window.id())
+                        .map(|p| p.send_event(RenderEvent::RequestRedraw(window.id())));
+                }
+            }
         }
 
-        unsafe {
-            self.instance.destroy_surface_khr(self.data.surface, None);
-            self.instance.destroy_instance(None)
-        };
+        Self { event_loop, window }
+    }
+
+    pub fn run(self) {
+        let AppRunner { event_loop, window } = self;
+
+        event_loop.run(move |event, _, control_flow| match event {
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
+                let mut state = State::global().lock().unwrap();
+                state.update();
+                match state.render_target(window_id) {
+                    Ok(_) => {}
+                    Err(wgpu::SurfaceError::Lost) => {
+                        if let Some(sz) = state.target_size(window_id) {
+                            state.resize_target(window.id(), sz);
+                        }
+                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    Err(e) => eprintln!("{:?}", e),
+                }
+            }
+            Event::MainEventsCleared => {
+                // 已改为由提交（submit_to）触发重绘，避免无条件每帧重绘引起 Vulkan 信号量复用错误
+            }
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == window.id() => {
+                let mut state = State::global().lock().unwrap();
+                if !state.input(event) {
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            input:
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => *control_flow = ControlFlow::Exit,
+                        WindowEvent::Resized(physical_size) => {
+                            state.resize_target(window.id(), *physical_size);
+                        }
+                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                            state.resize_target(window.id(), **new_inner_size);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Event::UserEvent(e) => match e {
+                RenderEvent::RequestRedraw(id) => {
+                    if id == window.id() {
+                        window.request_redraw();
+                    }
+                }
+                RenderEvent::Submit(id, submission) => {
+                    // push submission into pending and request redraw
+                    let mut state = State::global().lock().unwrap();
+                    state
+                        .pending_widgets
+                        .entry(id)
+                        .or_default()
+                        .push(submission);
+                    if id == window.id() {
+                        window.request_redraw();
+                    }
+                }
+            },
+            _ => {}
+        });
+    }
+
+    /// Run the event loop and execute `startup` once on the event-loop thread when the loop starts.
+    pub fn run_with_startup<F: FnOnce() + 'static>(self, startup: F) {
+        let AppRunner { event_loop, window } = self;
+        let mut startup_opt = Some(Box::new(startup));
+
+        event_loop.run(move |event, _, control_flow| {
+            // call startup on the Init event exactly once
+            if let Event::NewEvents(StartCause::Init) = event {
+                if let Some(cb) = startup_opt.take() {
+                    cb();
+                }
+            }
+
+            match event {
+                Event::RedrawRequested(window_id) if window_id == window.id() => {
+                    let mut state = State::global().lock().unwrap();
+                    state.update();
+                    match state.render_target(window_id) {
+                        Ok(_) => {}
+                        Err(wgpu::SurfaceError::Lost) => {
+                            if let Some(sz) = state.target_size(window_id) {
+                                state.resize_target(window.id(), sz);
+                            }
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                        Err(e) => eprintln!("{:?}", e),
+                    }
+                }
+                Event::MainEventsCleared => {
+                    // no-op; redraws triggered by submissions
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == window.id() => {
+                    let mut state = State::global().lock().unwrap();
+                    if !state.input(event) {
+                        match event {
+                            WindowEvent::CloseRequested
+                            | WindowEvent::KeyboardInput {
+                                input:
+                                    KeyboardInput {
+                                        state: ElementState::Pressed,
+                                        virtual_keycode: Some(VirtualKeyCode::Escape),
+                                        ..
+                                    },
+                                ..
+                            } => *control_flow = ControlFlow::Exit,
+                            WindowEvent::Resized(physical_size) => {
+                                state.resize_target(window.id(), *physical_size);
+                            }
+                            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                                state.resize_target(window.id(), **new_inner_size);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Event::UserEvent(e) => match e {
+                    RenderEvent::RequestRedraw(id) => {
+                        if id == window.id() {
+                            window.request_redraw();
+                        }
+                    }
+                    RenderEvent::Submit(id, submission) => {
+                        let mut state = State::global().lock().unwrap();
+                        state
+                            .pending_widgets
+                            .entry(id)
+                            .or_default()
+                            .push(submission);
+                        if id == window.id() {
+                            window.request_redraw();
+                        }
+                    }
+                },
+                _ => {}
+            }
+        });
     }
 }
