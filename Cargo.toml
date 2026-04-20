@@ -18,3 +18,4 @@ once_cell = "1.21"
 
 [lib]
 crate-type=["rlib"]
+proc-macro = true

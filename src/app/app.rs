@@ -2,7 +2,7 @@ use winit::event::{ElementState, Event, KeyboardInput, StartCause, VirtualKeyCod
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use winit::window::{Window, WindowBuilder};
 
-use crate::render::wgpu::state::{RenderEvent, State};
+use crate::render::state::{RenderEvent, State};
 
 pub struct AppRunner {
     event_loop: EventLoop<RenderEvent>,
