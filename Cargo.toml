@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bael_macro = { path = "bael_macro" }
+
 anyhow = "1.0.102"
 cgmath = "0.18.0"
 log = "0.4.29"
@@ -18,4 +20,3 @@ once_cell = "1.21"
 
 [lib]
 crate-type=["rlib"]
-proc-macro = true

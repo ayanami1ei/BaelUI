@@ -175,6 +175,7 @@ name = "bael"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bael_macro",
  "bytemuck",
  "cgmath",
  "image",
@@ -185,6 +186,15 @@ dependencies = [
  "thiserror 2.0.18",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "bael_macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

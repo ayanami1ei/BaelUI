@@ -1,7 +1,7 @@
 use crate::render::vertex::Vertex;
 
 pub trait Widget {
-    fn new(window_id: winit::window::WindowId) -> Self
+    fn new(window_id: winit::window::WindowId, pattern:&Vec<Vertex>, texture:&Vec<u8>) -> Self
     where
         Self: Sized;
 
