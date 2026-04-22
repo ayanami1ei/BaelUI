@@ -108,6 +108,10 @@ impl AppRunner {
         });
     }
 
+    pub fn get_window_id(&self) -> winit::window::WindowId {
+        self.window.id()
+    }
+
     /// Run the event loop and execute `startup` once on the event-loop thread when the loop starts.
     pub fn run_with_startup<F: FnOnce() + 'static>(self, startup: F) {
         let AppRunner { event_loop, window } = self;

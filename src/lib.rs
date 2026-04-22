@@ -1,6 +1,6 @@
 pub mod app;
 pub mod render;
-mod ui;
+pub mod ui;
 use bael_macro::externed;
 
 /// Convenience re-exports so other crates can depend only on `bael`.
@@ -20,4 +20,5 @@ pub mod controller{
     pub use bael_macro::widget;
     pub use crate::ui::widget::Widget;
     pub use winit::window::WindowId;
+    pub use crate::ui::widget_creator::{create, register, get_handle};
 }
